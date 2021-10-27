@@ -14,37 +14,57 @@ import (
 
 type jobsInfo map[int]string
 
+type GitlabConfig struct {
+	Config *config.Config
+	Ctx    context.Context
+	Cli    *gitlab.Client
+}
+
+type artifact struct {
+	content *bytes.Reader
+	name    string
+}
+
 func findNeededJobs(
-	cli *gitlab.Client,
-	conf *config.Config,
+	gitlabConfig *GitlabConfig,
 	pipelineId int,
 ) (jobsInfo, error) {
-	pipelineJobs, _, err := cli.Jobs.ListPipelineJobs(
-		fmt.Sprintf("%s/%s", conf.Project, conf.Repository),
+	pipelineJobs, _, err := gitlabConfig.Cli.Jobs.ListPipelineJobs(
+		fmt.Sprintf(
+			"%s/%s",
+			gitlabConfig.Config.Project,
+			gitlabConfig.Config.Repository,
+		),
 		pipelineId,
 		&gitlab.ListJobsOptions{
 			ListOptions: gitlab.ListOptions{
-				PerPage: conf.PagePerCount,
+				PerPage: gitlabConfig.Config.PagePerCount,
 			},
 		},
 	)
 	if err != nil {
-		err = fmt.Errorf("failed to fetch jobs from the pipeline %d", pipelineId)
+		err = fmt.Errorf(
+			"failed to fetch jobs from the pipeline %d",
+			pipelineId,
+		)
 		return nil, err
 	}
 
 	var selectedJobs = make(jobsInfo)
 
 	for _, job := range pipelineJobs {
-		for _, artifact := range conf.Artifacts {
+		for _, artifact := range gitlabConfig.Config.Artifacts {
 			if job.Name == artifact {
 				selectedJobs[job.ID] = job.Name
 			}
 		}
 	}
 
-	if len(selectedJobs) < len(conf.Artifacts) {
-		err = fmt.Errorf("not all needed jobs were found in the pipeline %d", pipelineId)
+	if len(selectedJobs) < len(gitlabConfig.Config.Artifacts) {
+		err = fmt.Errorf(
+			"not all needed jobs were found in the pipeline %d",
+			pipelineId,
+		)
 		return nil, err
 	}
 
@@ -52,26 +72,28 @@ func findNeededJobs(
 }
 
 func getJobsFromTriggeredPipeline(
-	ctx context.Context,
-	cli *gitlab.Client,
-	conf *config.Config,
+	gitlabConfig *GitlabConfig,
 	jobsInfoChan chan jobsInfo,
 	errChan chan error,
 ) {
 	var pipeline *gitlab.Pipeline
 	var variables []*gitlab.PipelineVariable
 	var err error
-	if conf.Key != "" && conf.Value != "" {
+	if gitlabConfig.Config.Key != "" && gitlabConfig.Config.Value != "" {
 		variables = append(variables, &gitlab.PipelineVariable{
-			Key:   conf.Key,
-			Value: conf.Value,
+			Key:   gitlabConfig.Config.Key,
+			Value: gitlabConfig.Config.Value,
 		})
 	}
 
-	pipeline, _, err = cli.Pipelines.CreatePipeline(
-		fmt.Sprintf("%s/%s", conf.Project, conf.Repository),
+	pipeline, _, err = gitlabConfig.Cli.Pipelines.CreatePipeline(
+		fmt.Sprintf(
+			"%s/%s",
+			gitlabConfig.Config.Project,
+			gitlabConfig.Config.Repository,
+		),
 		&gitlab.CreatePipelineOptions{
-			Ref:       gitlab.String(conf.Branch),
+			Ref:       gitlab.String(gitlabConfig.Config.Branch),
 			Variables: variables,
 		},
 	)
@@ -81,8 +103,7 @@ func getJobsFromTriggeredPipeline(
 	}
 
 	selectedJobs, err := findNeededJobs(
-		cli,
-		conf,
+		gitlabConfig,
 		pipeline.ID,
 	)
 	if err != nil {
@@ -92,8 +113,12 @@ func getJobsFromTriggeredPipeline(
 
 	for jobID := range selectedJobs {
 		for {
-			job, _, err := cli.Jobs.GetJob(
-				fmt.Sprintf("%s/%s", conf.Project, conf.Repository),
+			job, _, err := gitlabConfig.Cli.Jobs.GetJob(
+				fmt.Sprintf(
+					"%s/%s",
+					gitlabConfig.Config.Project,
+					gitlabConfig.Config.Repository,
+				),
 				jobID,
 			)
 			if err != nil {
@@ -113,23 +138,26 @@ func getJobsFromTriggeredPipeline(
 				return
 			}
 
-			time.Sleep(conf.SleepStep)
+			time.Sleep(gitlabConfig.Config.SleepStep)
 		}
 	}
 	jobsInfoChan <- selectedJobs
 }
 
 func getJobsFromFinishedPipeline(
-	cli *gitlab.Client,
-	conf *config.Config,
+	gitlabConfig *GitlabConfig,
 	jobsInfoChan chan jobsInfo,
 	errChan chan error,
 ) {
-	pipelines, _, err := cli.Pipelines.ListProjectPipelines(
-		fmt.Sprintf("%s/%s", conf.Project, conf.Repository),
+	pipelines, _, err := gitlabConfig.Cli.Pipelines.ListProjectPipelines(
+		fmt.Sprintf(
+			"%s/%s",
+			gitlabConfig.Config.Project,
+			gitlabConfig.Config.Repository,
+		),
 		&gitlab.ListProjectPipelinesOptions{
-			Ref:         gitlab.String(conf.Branch),
-			ListOptions: gitlab.ListOptions{PerPage: conf.PagePerCount},
+			Ref:         gitlab.String(gitlabConfig.Config.Branch),
+			ListOptions: gitlab.ListOptions{PerPage: gitlabConfig.Config.PagePerCount},
 			Status:      gitlab.BuildState("success"),
 		},
 	)
@@ -140,8 +168,7 @@ func getJobsFromFinishedPipeline(
 
 	for _, pipeline := range pipelines {
 		selectedJobs, err := findNeededJobs(
-			cli,
-			conf,
+			gitlabConfig,
 			pipeline.ID,
 		)
 		if err == nil {
@@ -154,30 +181,23 @@ func getJobsFromFinishedPipeline(
 	errChan <- err
 }
 
-func GetJobsWithNeededArtifacts(
-	ctx context.Context,
-	cli *gitlab.Client,
-	conf *config.Config,
-) (jobsInfo, error) {
+func GetJobsWithNeededArtifacts(gitlabConfig *GitlabConfig) (jobsInfo, error) {
 	jobsInfoChan := make(chan jobsInfo)
 	errChan := make(chan error)
-	ctx, cancel := context.WithTimeout(ctx, conf.Timeout)
+	ctx, cancel := context.WithTimeout(gitlabConfig.Ctx, gitlabConfig.Config.Timeout)
 	defer cancel()
 
-	if conf.ForceTrigger {
+	if gitlabConfig.Config.ForceTrigger {
 		println("Triggering new pipeline...")
 		go getJobsFromTriggeredPipeline(
-			ctx,
-			cli,
-			conf,
+			gitlabConfig,
 			jobsInfoChan,
 			errChan,
 		)
 	} else {
 		println("Searching for the latest suitable pipeline...")
 		go getJobsFromFinishedPipeline(
-			cli,
-			conf,
+			gitlabConfig,
 			jobsInfoChan,
 			errChan,
 		)
@@ -194,41 +214,50 @@ func GetJobsWithNeededArtifacts(
 }
 
 func downloadArtifact(
-	artifact *bytes.Reader,
-	jobName string,
+	artifact *artifact,
 	downloadFolder string,
 	errChan chan error,
 ) {
-	file, err := os.Create(fmt.Sprintf("%s/%s.zip", downloadFolder, jobName))
+	file, err := os.Create(
+		fmt.Sprintf(
+			"%s/%s.zip",
+			downloadFolder,
+			artifact.name,
+		),
+	)
 	if err != nil {
 		errChan <- err
 	}
 	defer file.Close()
 
 	writer := bufio.NewWriter(file)
-	artifact.WriteTo(writer)
+	artifact.content.WriteTo(writer)
 	if err != nil {
 		errChan <- err
 	}
 	errChan <- err
 }
 
-func DownloadArtifacts(
-	client *gitlab.Client,
-	config *config.Config,
-	selectedJobs jobsInfo,
-) error {
-	errChan := make(chan error)
+func DownloadArtifacts(gitlabConfig *GitlabConfig, selectedJobs jobsInfo) error {
+	errChan := make(chan error, len(selectedJobs))
 	for jobID, jobName := range selectedJobs {
-		artifact, _, err := client.Jobs.GetJobArtifacts(
-			fmt.Sprintf("%s/%s", config.Project, config.Repository),
+		content, _, err := gitlabConfig.Cli.Jobs.GetJobArtifacts(
+			fmt.Sprintf(
+				"%s/%s",
+				gitlabConfig.Config.Project,
+				gitlabConfig.Config.Repository,
+			),
 			jobID,
 			nil,
 		)
 		if err != nil {
 			return err
 		}
-		go downloadArtifact(artifact, jobName, config.DownloadFolder, errChan)
+		artifact := artifact{
+			content: content,
+			name:    jobName,
+		}
+		go downloadArtifact(&artifact, gitlabConfig.Config.DownloadFolder, errChan)
 	}
 	for range selectedJobs {
 		err := <-errChan

@@ -25,12 +25,14 @@ func main() {
 		os.Exit(-1)
 	}
 
+	gitlabConfig := gitlab_handler.GitlabConfig{
+		Config: config,
+		Ctx:    ctx,
+		Cli:    client,
+	}
+
 	println("Searching for artifacts...")
-	selectedJobs, err := gitlab_handler.GetJobsWithNeededArtifacts(
-		ctx,
-		client,
-		config,
-	)
+	selectedJobs, err := gitlab_handler.GetJobsWithNeededArtifacts(&gitlabConfig)
 	if err != nil {
 		fmt.Printf(
 			"An error occured during the proccess of finding artifacts: %v",
@@ -39,8 +41,7 @@ func main() {
 		os.Exit(-1)
 	}
 	err = gitlab_handler.DownloadArtifacts(
-		client,
-		config,
+		&gitlabConfig,
 		selectedJobs,
 	)
 	if err != nil {
