@@ -231,33 +231,35 @@ func downloadArtifact(
 	defer file.Close()
 
 	writer := bufio.NewWriter(file)
-	artifact.content.WriteTo(writer)
-	if err != nil {
-		errChan <- err
-	}
+	_, err = artifact.content.WriteTo(writer)
 	errChan <- err
 }
 
 func DownloadArtifacts(gitlabConfig *GitlabConfig, selectedJobs jobsInfo) error {
 	errChan := make(chan error, len(selectedJobs))
 	for jobID, jobName := range selectedJobs {
-		content, _, err := gitlabConfig.Cli.Jobs.GetJobArtifacts(
-			fmt.Sprintf(
-				"%s/%s",
-				gitlabConfig.Config.Project,
-				gitlabConfig.Config.Repository,
-			),
-			jobID,
-			nil,
-		)
-		if err != nil {
-			return err
-		}
-		artifact := artifact{
-			content: content,
-			name:    jobName,
-		}
-		go downloadArtifact(&artifact, gitlabConfig.Config.DownloadFolder, errChan)
+		go func(jobID int, jobName string) {
+			content, _, err := gitlabConfig.Cli.Jobs.GetJobArtifacts(
+				fmt.Sprintf(
+					"%s/%s",
+					gitlabConfig.Config.Project,
+					gitlabConfig.Config.Repository,
+				),
+				jobID,
+				nil,
+			)
+			if err != nil {
+				errChan <- err
+			}
+			go downloadArtifact(
+				&artifact{
+					content: content,
+					name:    jobName,
+				},
+				gitlabConfig.Config.DownloadFolder,
+				errChan,
+			)
+		}(jobID, jobName)
 	}
 	for range selectedJobs {
 		err := <-errChan
