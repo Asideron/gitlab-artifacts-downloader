@@ -1,0 +1,8 @@
+Project = "MyProject"
+Repository = "MyRepository"
+Branch = "Mybranch"
+ForceTrigger = false
+Artifacts = ["My", "Artifacts", "List"]
+Token = "MyAccessToken"
+BaseURL = "MyBaseURL"
+DownloadFolder = "MyDownloadFolderPath"

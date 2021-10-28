@@ -19,6 +19,7 @@ func ParseFlags() (*Config, error) {
 		flag.PrintDefaults()
 	}
 
+	config := flag.String("c", "", "[optional]Config TOML file")
 	project := flag.String("p", "", "Project name")
 	repository := flag.String("r", "", "Repository name")
 	branch := flag.String("b", "", "Name of branch")
@@ -40,6 +41,18 @@ func ParseFlags() (*Config, error) {
 	flag.Parse()
 
 	var err error
+	if *config != "" {
+		fmt.Println("Reading config file...")
+		tomlConfig, err := parseToml(*config)
+		if err == nil {
+			tomlConfig.PerPageCount = perPageCount
+			tomlConfig.PipelinesLimit = *pipelinesLimit
+			tomlConfig.Timeout = timeout
+			tomlConfig.SleepStep = sleepStep
+			fmt.Println("Config accepted!")
+		}
+		return tomlConfig, err
+	}
 	if *project == "" ||
 		*repository == "" ||
 		*branch == "" ||

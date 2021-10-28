@@ -5,6 +5,7 @@ go 1.17
 require github.com/xanzy/go-gitlab v0.51.1
 
 require (
+	github.com/BurntSushi/toml v0.4.1
 	github.com/golang/protobuf v1.2.0 // indirect
 	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.1 // indirect
