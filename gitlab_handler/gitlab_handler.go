@@ -209,14 +209,14 @@ func GetJobsWithNeededArtifacts(gitlabConfig *GitlabConfig) (jobsInfo, error) {
 	defer cancel()
 
 	if gitlabConfig.Config.ForceTrigger {
-		println("Triggering new pipeline...")
+		fmt.Println("Triggering new pipeline...")
 		go getJobsFromTriggeredPipeline(
 			gitlabConfig,
 			jobsInfoChan,
 			errChan,
 		)
 	} else {
-		println("Searching for the latest suitable pipeline...")
+		fmt.Println("Searching for the latest suitable pipeline...")
 		go getJobsFromFinishedPipeline(
 			gitlabConfig,
 			jobsInfoChan,

@@ -15,7 +15,7 @@ const (
 
 func ParseFlags() (*Config, error) {
 	usage := func() {
-		println("Auto-dowloader of artifacts.")
+		fmt.Println("Auto-dowloader of artifacts.")
 		flag.PrintDefaults()
 	}
 

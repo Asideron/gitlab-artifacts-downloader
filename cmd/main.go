@@ -31,7 +31,7 @@ func main() {
 		Cli:    client,
 	}
 
-	println("Searching for artifacts...")
+	fmt.Println("Searching for artifacts...")
 	selectedJobs, err := gitlab_handler.GetJobsWithNeededArtifacts(&gitlabConfig)
 	if err != nil {
 		fmt.Printf(
@@ -51,5 +51,5 @@ func main() {
 		)
 		os.Exit(-1)
 	}
-	println("Artifacts were downloaded!")
+	fmt.Println("Artifacts were downloaded!")
 }
