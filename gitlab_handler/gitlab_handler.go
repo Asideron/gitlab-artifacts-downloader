@@ -272,7 +272,7 @@ func DownloadArtifacts(gitlabConfig *GitlabConfig, selectedJobs jobsInfo) error 
 			if err != nil {
 				errChan <- err
 			}
-			go downloadArtifact(
+			downloadArtifact(
 				&artifact{
 					content: content,
 					name:    jobName,
