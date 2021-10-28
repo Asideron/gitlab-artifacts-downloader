@@ -28,47 +28,58 @@ type artifact struct {
 func findNeededJobs(
 	gitlabConfig *GitlabConfig,
 	pipelineId int,
+	jobsStates []string,
 ) (jobsInfo, error) {
-	pipelineJobs, _, err := gitlabConfig.Cli.Jobs.ListPipelineJobs(
-		fmt.Sprintf(
-			"%s/%s",
-			gitlabConfig.Config.Project,
-			gitlabConfig.Config.Repository,
-		),
-		pipelineId,
-		&gitlab.ListJobsOptions{
-			ListOptions: gitlab.ListOptions{
-				PerPage: gitlabConfig.Config.PagePerCount,
-			},
-		},
-	)
-	if err != nil {
-		err = fmt.Errorf(
-			"failed to fetch jobs from the pipeline %d",
-			pipelineId,
-		)
-		return nil, err
-	}
-
-	var selectedJobs = make(jobsInfo)
-
-	for _, job := range pipelineJobs {
-		for _, artifact := range gitlabConfig.Config.Artifacts {
-			if job.Name == artifact {
-				selectedJobs[job.ID] = job.Name
-			}
+	var chosenJobStates []gitlab.BuildStateValue = nil
+	if len(jobsStates) > 0 {
+		for _, status := range jobsStates {
+			chosenJobStates = append(chosenJobStates, gitlab.BuildStateValue(status))
 		}
 	}
 
-	if len(selectedJobs) < len(gitlabConfig.Config.Artifacts) {
-		err = fmt.Errorf(
-			"not all needed jobs were found in the pipeline %d",
+	var selectedJobs = make(jobsInfo)
+	currentPage := 1
+	for {
+		pipelineJobs, _, err := gitlabConfig.Cli.Jobs.ListPipelineJobs(
+			fmt.Sprintf(
+				"%s/%s",
+				gitlabConfig.Config.Project,
+				gitlabConfig.Config.Repository,
+			),
 			pipelineId,
+			&gitlab.ListJobsOptions{
+				ListOptions: gitlab.ListOptions{
+					Page:    currentPage,
+					PerPage: gitlabConfig.Config.PerPageCount,
+				},
+				Scope: chosenJobStates,
+			},
 		)
-		return nil, err
-	}
+		if err != nil {
+			err = fmt.Errorf(
+				"failed to fetch jobs from the pipeline %d",
+				pipelineId,
+			)
+			return nil, err
+		}
+		if len(pipelineJobs) == 0 {
+			break
+		}
 
-	return selectedJobs, err
+		for _, job := range pipelineJobs {
+			for _, artifact := range gitlabConfig.Config.Artifacts {
+				if job.Name == artifact {
+					selectedJobs[job.ID] = job.Name
+					break
+				}
+			}
+		}
+		currentPage++
+	}
+	if len(selectedJobs) == len(gitlabConfig.Config.Artifacts) {
+		return selectedJobs, nil
+	}
+	return nil, fmt.Errorf("no suitable jobs were found")
 }
 
 func getJobsFromTriggeredPipeline(
@@ -105,6 +116,7 @@ func getJobsFromTriggeredPipeline(
 	selectedJobs, err := findNeededJobs(
 		gitlabConfig,
 		pipeline.ID,
+		nil,
 	)
 	if err != nil {
 		errChan <- err
@@ -126,7 +138,7 @@ func getJobsFromTriggeredPipeline(
 				return
 			}
 
-			if job.Status == "success" {
+			if job.Status == string(gitlab.Success) {
 				break
 			} else if job.Status == "failed" {
 				err := fmt.Errorf("job has failed: %v", job.Name)
@@ -149,36 +161,45 @@ func getJobsFromFinishedPipeline(
 	jobsInfoChan chan jobsInfo,
 	errChan chan error,
 ) {
-	pipelines, _, err := gitlabConfig.Cli.Pipelines.ListProjectPipelines(
-		fmt.Sprintf(
-			"%s/%s",
-			gitlabConfig.Config.Project,
-			gitlabConfig.Config.Repository,
-		),
-		&gitlab.ListProjectPipelinesOptions{
-			Ref:         gitlab.String(gitlabConfig.Config.Branch),
-			ListOptions: gitlab.ListOptions{PerPage: gitlabConfig.Config.PagePerCount},
-			Status:      gitlab.BuildState("success"),
-		},
-	)
-	if err != nil {
-		errChan <- err
-		return
-	}
-
-	for _, pipeline := range pipelines {
-		selectedJobs, err := findNeededJobs(
-			gitlabConfig,
-			pipeline.ID,
+	limit := gitlabConfig.Config.PipelinesLimit
+	currentPage := 1
+	for limit > 0 {
+		pipelines, _, err := gitlabConfig.Cli.Pipelines.ListProjectPipelines(
+			fmt.Sprintf(
+				"%s/%s",
+				gitlabConfig.Config.Project,
+				gitlabConfig.Config.Repository,
+			),
+			&gitlab.ListProjectPipelinesOptions{
+				Ref: gitlab.String(gitlabConfig.Config.Branch),
+				ListOptions: gitlab.ListOptions{
+					Page:    currentPage,
+					PerPage: gitlabConfig.Config.PerPageCount},
+			},
 		)
-		if err == nil {
-			jobsInfoChan <- selectedJobs
+		if err != nil {
+			errChan <- err
 			return
 		}
-	}
+		if len(pipelines) == 0 {
+			errChan <- fmt.Errorf("no suitable pipelines were found")
+		}
 
-	err = fmt.Errorf("no suitable pipeline was found")
-	errChan <- err
+		for _, pipeline := range pipelines {
+			selectedJobs, err := findNeededJobs(
+				gitlabConfig,
+				pipeline.ID,
+				[]string{string(gitlab.Success)},
+			)
+			if err == nil {
+				jobsInfoChan <- selectedJobs
+				return
+			}
+		}
+		limit -= len(pipelines)
+		currentPage++
+	}
+	errChan <- fmt.Errorf("no suitable pipelines were found")
 }
 
 func GetJobsWithNeededArtifacts(gitlabConfig *GitlabConfig) (jobsInfo, error) {

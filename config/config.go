@@ -7,9 +7,10 @@ import (
 )
 
 const (
-	perPageCount = 100
-	timeout      = 1800 * time.Second
-	sleepStep    = 10 * time.Second
+	perPageCount          = 50
+	defaultPipelinesLimit = 100
+	timeout               = 1800 * time.Second
+	sleepStep             = 10 * time.Second
 )
 
 func ParseFlags() (*Config, error) {
@@ -32,6 +33,8 @@ func ParseFlags() (*Config, error) {
 		"[optional] Force trigger build")
 	key := flag.String("k", "", "Name of variable for pipeline")
 	value := flag.String("v", "", "Value of variable for pipeline")
+	pipelinesLimit := flag.Int("pipelines-limit", defaultPipelinesLimit,
+		"[optional] Limit for the pipelines count to be examined during the search")
 
 	flag.Usage = usage
 	flag.Parse()
@@ -61,6 +64,7 @@ func ParseFlags() (*Config, error) {
 		Value:          *value,
 		Timeout:        timeout,
 		SleepStep:      sleepStep,
-		PagePerCount:   perPageCount,
+		PerPageCount:   perPageCount,
+		PipelinesLimit: *pipelinesLimit,
 	}, err
 }

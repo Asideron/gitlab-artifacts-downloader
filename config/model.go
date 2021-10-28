@@ -33,5 +33,6 @@ type Config struct {
 	Value          string
 	Timeout        time.Duration
 	SleepStep      time.Duration
-	PagePerCount   int
+	PerPageCount   int
+	PipelinesLimit int
 }
