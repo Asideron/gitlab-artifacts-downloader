@@ -28,8 +28,6 @@ func ParseFlags() (*Config, error) {
 
 	flag.Var(&artifacts, "a", "List of artifacts")
 	downloadFolder := flag.String("d", "", "Download folder")
-	noTrigger := flag.Bool("no-trigger", false,
-		"[optional] Do not trigger build if no artifatcts were found")
 	forceTrigger := flag.Bool("force-trigger", false,
 		"[optional] Force trigger build")
 	key := flag.String("k", "", "Name of variable for pipeline")
@@ -58,7 +56,6 @@ func ParseFlags() (*Config, error) {
 		Repository:     *repository,
 		DownloadFolder: *downloadFolder,
 		Artifacts:      artifacts,
-		NoTrigger:      *noTrigger,
 		ForceTrigger:   *forceTrigger,
 		Key:            *key,
 		Value:          *value,

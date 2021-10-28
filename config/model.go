@@ -28,7 +28,6 @@ type Config struct {
 	Repository     string
 	DownloadFolder string
 	Artifacts      []string
-	NoTrigger      bool
 	ForceTrigger   bool
 	Key            string
 	Value          string
