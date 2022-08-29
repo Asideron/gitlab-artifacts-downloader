@@ -89,7 +89,7 @@ func main() {
 					return
 				}
 				wg.Add(1)
-				go func(artifact *gitlab.Artifact) {
+				go func() {
 					defer wg.Done()
 					err := app.GitlabCli.DownloadArtifact(artifact, app.Config.Folder)
 					if err != nil {
@@ -97,7 +97,7 @@ func main() {
 						return
 					}
 					fmt.Printf("Artifact %s was downloaded.\n", artifact.Name)
-				}(artifact)
+				}()
 			case <-ticker.C:
 				fmt.Println("Waiting...")
 			}
