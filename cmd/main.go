@@ -47,35 +47,37 @@ func main() {
 
 	artifacts := make(chan *gitlab.Artifact)
 
-	var jobWaitWg sync.WaitGroup
-	for _, job := range jobs {
-		jobWaitWg.Add(1)
-		go func(job *gitlab.JobInfo) {
-			defer jobWaitWg.Done()
-			ctx, cancel := context.WithTimeout(app.Ctx, app.Config.Timeout)
-			defer cancel()
-			artifact, err := app.GitlabCli.WaitJobArtifact(ctx, pipeline, job)
-			if err != nil {
-				fmt.Printf("An error occurred while getting the artifact %s: %s\n", job.Name, err.Error())
-				return
-			}
-			artifacts <- artifact
-			fmt.Printf("Got artifact %s. Downloading...\n", artifact.Name)
-		}(job)
+	{
+		var wg sync.WaitGroup
+		for _, job := range jobs {
+			wg.Add(1)
+			go func(job *gitlab.JobInfo) {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(app.Ctx, app.Config.Timeout)
+				defer cancel()
+				artifact, err := app.GitlabCli.WaitJobArtifact(ctx, pipeline, job)
+				if err != nil {
+					fmt.Printf("An error occurred while getting the artifact %s: %s\n", job.Name, err.Error())
+					return
+				}
+				artifacts <- artifact
+				fmt.Printf("Got artifact %s. Downloading...\n", artifact.Name)
+			}(job)
+		}
+
+		go func() {
+			wg.Wait()
+			defer close(artifacts)
+		}()
 	}
 
-	go func() {
-		jobWaitWg.Wait()
-		defer close(artifacts)
-	}()
-
-	var downloadWg sync.WaitGroup
-	downloadWg.Add(1)
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
 		ticker := time.NewTicker(time.Duration(30) * time.Second)
 		defer ticker.Stop()
 
-		defer downloadWg.Done()
+		defer wg.Done()
 
 		for {
 			select {
@@ -83,9 +85,9 @@ func main() {
 				if !open {
 					return
 				}
-				downloadWg.Add(1)
+				wg.Add(1)
 				go func(artifact *gitlab.Artifact) {
-					defer downloadWg.Done()
+					defer wg.Done()
 					err := app.GitlabCli.DownloadArtifact(artifact, app.Config.Folder)
 					if err != nil {
 						fmt.Printf("An error occurred while downloading the artifact %s: %s\n", artifact.Name, err.Error())
@@ -98,7 +100,7 @@ func main() {
 			}
 		}
 	}()
-	downloadWg.Wait()
+	wg.Wait()
 
 	fmt.Println("Work is finished.")
 }
