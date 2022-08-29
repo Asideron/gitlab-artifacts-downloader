@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/xanzy/go-gitlab"
@@ -48,11 +49,7 @@ func (cli *GitlabClient) TriggerPipeline(pipelineInfo *PipelineInfo) (*int, erro
 	}
 
 	pipeline, _, err := cli.Pipelines.CreatePipeline(
-		fmt.Sprintf(
-			"%s/%s",
-			pipelineInfo.Project,
-			pipelineInfo.Repository,
-		),
+		makeProjectId(pipelineInfo.Project, pipelineInfo.Repository),
 		&gitlab.CreatePipelineOptions{
 			Ref:       gitlab.String(pipelineInfo.Branch),
 			Variables: variables,
@@ -74,12 +71,17 @@ type JobInfo struct {
 	Name string
 }
 
+type FindJobsOpts struct {
+	CancelUnneededJobs bool
+	// ...
+}
+
 func (cli *GitlabClient) FindJobs(
 	ctx context.Context,
 	pipeline *PipelineInfo,
 	jobsSearch *JobsSearch,
+	opts *FindJobsOpts,
 ) ([]*JobInfo, error) {
-
 	neededJobs := make([]*JobInfo, 0)
 
 	chosenJobStates := make([]gitlab.BuildStateValue, 0)
@@ -89,15 +91,13 @@ func (cli *GitlabClient) FindJobs(
 		}
 	}
 
+	var wg sync.WaitGroup
+
 	currentPage := 1
 	anyJobsFound := true
 	for anyJobsFound {
 		pipelineJobs, _, err := cli.Jobs.ListPipelineJobs(
-			fmt.Sprintf(
-				"%s/%s",
-				pipeline.Project,
-				pipeline.Repository,
-			),
+			makeProjectId(pipeline.Project, pipeline.Repository),
 			*pipeline.ID,
 			&gitlab.ListJobsOptions{
 				ListOptions: gitlab.ListOptions{
@@ -120,16 +120,39 @@ func (cli *GitlabClient) FindJobs(
 				}
 			} else {
 				for _, job := range pipelineJobs {
+					isNeededJob := false
 					for _, neededJob := range *jobsSearch.Jobs {
 						if job.Name == neededJob {
 							neededJobs = append(neededJobs, &JobInfo{job.ID, job.Name})
+							isNeededJob = true
+							break
 						}
+					}
+					if opts != nil {
+						if !isNeededJob && opts.CancelUnneededJobs {
+							wg.Add(1)
+							go func() {
+								defer wg.Done()
+								_, _, err := cli.Jobs.CancelJob(
+									makeProjectId(pipeline.Project, pipeline.Repository),
+									job.ID,
+								)
+								if err != nil {
+									fmt.Printf("Failed to cancel job %s\n", job.Name)
+									return
+								}
+								fmt.Printf("Job %s was canceled.\n", job.Name)
+							}()
+						}
+						// ...
 					}
 				}
 			}
 			currentPage++
 		}
 	}
+
+	wg.Wait()
 
 	if jobsSearch.Jobs != nil {
 		if len(neededJobs) == 0 {
@@ -148,19 +171,6 @@ type Artifact struct {
 	Content *bytes.Reader
 }
 
-func isFinishedJob(state string) (bool, error) {
-	switch state {
-	case Success:
-		return true, nil
-	case Failed, Canceled, Manual, Skipped:
-		return true, errNotSuccessfulJob
-	case Running, Pending:
-		return false, nil
-	default:
-		return false, errUnrecognizeJobStatus
-	}
-}
-
 func (cli *GitlabClient) WaitJobArtifact(
 	ctx context.Context,
 	pipelineInfo *PipelineInfo,
@@ -173,11 +183,7 @@ func (cli *GitlabClient) WaitJobArtifact(
 		select {
 		case <-ticker.C:
 			job, _, err := cli.Jobs.GetJob(
-				fmt.Sprintf(
-					"%s/%s",
-					pipelineInfo.Project,
-					pipelineInfo.Repository,
-				),
+				makeProjectId(pipelineInfo.Project, pipelineInfo.Repository),
 				jobInfo.ID,
 			)
 			if err != nil {
@@ -201,11 +207,7 @@ func (cli *GitlabClient) GetArtifact(
 	job *JobInfo,
 ) (*Artifact, error) {
 	content, _, err := cli.Jobs.GetJobArtifacts(
-		fmt.Sprintf(
-			"%s/%s",
-			pipelineInfo.Project,
-			pipelineInfo.Repository,
-		),
+		makeProjectId(pipelineInfo.Project, pipelineInfo.Repository),
 		job.ID,
 	)
 	if err != nil {

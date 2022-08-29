@@ -36,14 +36,17 @@ func main() {
 	}
 	fmt.Println("Pipeline was triggered.")
 
-	jobs, err := app.GitlabCli.FindJobs(app.Ctx, pipeline, jobsSearch)
+	jobs, err := app.GitlabCli.FindJobs(
+		app.Ctx,
+		pipeline,
+		jobsSearch,
+		&gitlab.FindJobsOpts{CancelUnneededJobs: true},
+	)
 	if err != nil {
 		fmt.Printf("An error occurred while getting jobs: %s\n", err.Error())
 		os.Exit(-1)
 	}
 	fmt.Println("Jobs were located.")
-
-	// TODO: Cancel unneeded jobs.
 
 	artifacts := make(chan *gitlab.Artifact)
 
