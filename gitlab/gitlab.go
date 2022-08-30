@@ -94,8 +94,8 @@ func (cli *GitlabClient) FindJobs(
 	var wg sync.WaitGroup
 
 	currentPage := 1
-	anyJobsFound := true
-	for anyJobsFound {
+	keepSearhing := true
+	for keepSearhing {
 		pipelineJobs, _, err := cli.Jobs.ListPipelineJobs(
 			makeProjectId(pipeline.Project, pipeline.Repository),
 			*pipeline.ID,
@@ -112,7 +112,7 @@ func (cli *GitlabClient) FindJobs(
 		}
 
 		if len(pipelineJobs) == 0 {
-			anyJobsFound = false
+			keepSearhing = false
 		} else {
 			if jobsSearch.Jobs == nil {
 				for _, job := range pipelineJobs {
@@ -145,6 +145,9 @@ func (cli *GitlabClient) FindJobs(
 							}()
 						}
 						// ...
+					}
+					if isNeededJob && len(neededJobs) == len(*jobsSearch.Jobs) {
+						keepSearhing = false
 					}
 				}
 			}
